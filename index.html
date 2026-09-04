@@ -275,9 +275,10 @@ tbody tr[hidden]{display:none}
     <p><b>Retos que se resuelven a mano.</b> El reto 5 (primer broker con cliente confirmado) y los
     retos sorpresa de horario, racha y reconfirmaciones no salen del CRM: se deciden en el momento
     y no aparecen en este tablero.</p>
-    <p>Una llamada cuenta un cliente distinto: diez llamadas al mismo cliente valen una. Lo mismo
-    con las citas. La llave cambia según el tipo de registro: Id de prospecto para leads, nombre de
-    la oportunidad para oportunidades y contacto para cuentas.</p>
+    <p>Los retos 2 y 9 cuentan actividades totales, con repetidos. Las citas y la columna de
+    clientes distintos sí descuentan repetidos: la llave cambia según el tipo de registro, Id de
+    prospecto para leads, nombre de la oportunidad para oportunidades, y contacto para cuentas y
+    contactos.</p>
   </div></div>
 </main>
 
@@ -827,12 +828,11 @@ tab("4","Reto 1 · Citas y perfilados", pane=>{
 tab("5","Reto 2 · 300 llamadas", pane=>{
   cabecera(pane,"Reto 2: trescientas llamadas",
     "¿Quién llegará primero a las 300 llamadas?", "Cena para dos", 2);
-  ranking(pane, D.r2.map(r=>({eq:r[0],as:r[1],v:N(r[5]),extra:[fm(r[2]),fm(r[3]),fm(r[4])]})),
-    {etiqueta:"Clientes distintos", meta:D.meta.llamadas2,
-     extra:{cols:[{t:"Leads",n:true},{t:"Cuentas",n:true},{t:"Oportunidades",n:true}],
-            cel:o=>o.extra}});
-  pane.appendChild(EL("p","note","La marca roja de cada barra es la meta. Diez llamadas al mismo "+
-    "cliente cuentan una."));
+  ranking(pane, D.r2.map(r=>({eq:r[0],as:r[1],v:N(r[2]),extra:[fm(r[3]), r[9]||"—"]})),
+    {etiqueta:"Actividades totales", meta:D.meta.llamadas2,
+     extra:{cols:[{t:"Clientes distintos",n:true},{t:"Orden de llegada"}], cel:o=>o.extra}});
+  pane.appendChild(EL("p","note","La marca roja de cada barra es la meta. Cuenta cada actividad "+
+    "registrada, con repetidos; al lado va cuántos clientes distintos hay detrás."));
 }, 2);
 
 /* -- 6 -- */
@@ -923,12 +923,11 @@ tab("10","Reto 8 · Apartados", pane=>{
 /* -- 11 -- */
 tab("11","Reto 9 · Mil llamadas", pane=>{
   cabecera(pane,"Reto 9: mil llamadas en los diez días",
-    "Meta de "+fm(D.meta.llamadas9)+" clientes distintos llamados a lo largo del maratón.",
+    "Meta de "+fm(D.meta.llamadas9)+" actividades registradas a lo largo del maratón.",
     "Reconocimiento + premio", 9);
-  ranking(pane, D.r9.map(r=>({eq:r[0],as:r[1],v:N(r[5]),extra:[fm(r[2]),fm(r[3]),fm(r[4])]})),
-    {etiqueta:"Clientes distintos", meta:D.meta.llamadas9,
-     extra:{cols:[{t:"Leads",n:true},{t:"Cuentas",n:true},{t:"Oportunidades",n:true}],
-            cel:o=>o.extra}});
+  ranking(pane, D.r9.map(r=>({eq:r[0],as:r[1],v:N(r[2]),extra:[fm(r[3])]})),
+    {etiqueta:"Actividades totales", meta:D.meta.llamadas9,
+     extra:{cols:[{t:"Clientes distintos",n:true}], cel:o=>o.extra}});
 }, 9);
 
 /* -- 12 -- */

@@ -206,6 +206,17 @@ tbody tr[hidden]{display:none}
 .heat th,.heat td{padding:5px 7px;border:1px solid var(--line);text-align:center;white-space:nowrap}
 .heat td.who{text-align:left;font-size:13px}
 .heat td.z{color:#33415E}
+.heat th.sem,.heat td.sem{background:rgba(217,164,65,.10);font-weight:700}
+.heat th.dia,.heat td.dia{font-size:11.5px}
+.heat .oculta{display:none}
+.heat .exp{border:none;background:rgba(255,255,255,.10);color:inherit;border-radius:3px;
+  cursor:pointer;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px}
+.heat .exp:hover{background:rgba(255,255,255,.22)}
+.semtoggle{border:1px solid var(--line);background:var(--panel);border-radius:3px;
+  padding:5px 11px;font-size:12.5px;color:var(--mute);cursor:pointer}
+.semtoggle[aria-pressed="true"]{background:var(--panel2);color:var(--hueso);border-color:var(--dim)}
+.dsem{width:100%;font-size:11px;color:var(--dim);margin:2px 0 5px;letter-spacing:.04em;
+  text-transform:uppercase;font-weight:700}
 
 .champ{border:1px solid var(--gold);background:linear-gradient(180deg,rgba(217,164,65,.14),rgba(217,164,65,.04));
   padding:22px 24px;margin-bottom:24px;display:flex;gap:20px;align-items:center;flex-wrap:wrap}
@@ -366,7 +377,22 @@ function leer(buf){
     else if(/^Apoyo a cierre/i.test(a)) valor.apoyo=b;
   });
 
-  const dias = (M.r6[2]||[]).slice(2,12).map(dayLabel);
+  /* --- estructura de tiempo: 23 días agrupados en semanas --- */
+  const hdr6 = M.r6[2] || [];
+  const SEM = [];
+  const DIAS = [];
+  let IDX_TOT = -1, acc = [];
+  hdr6.forEach((h,i)=>{
+    if(i < 2) return;
+    if(h instanceof Date){ const o = {i, lbl:dayLabel(h)}; DIAS.push(o); acc.push(o); }
+    else if(typeof h === "string" && /^Sem\s*\d/i.test(h)){
+      SEM.push({lbl:h.replace(/\s*\(.*\)/,""), det:h, i, dias:acc}); acc = [];
+    }
+    else if(typeof h === "string" && /^Total/i.test(h) && IDX_TOT < 0) IDX_TOT = i;
+  });
+  if(IDX_TOT < 0) IDX_TOT = (SEM.length ? SEM[SEM.length-1].i + 1 : 12);
+  const IDX_EX = IDX_TOT + 1;
+  const dias = DIAS.map(d=>d.lbl);
 
   /* podio por día del marcador */
   const podio = (M.mar||[]).filter(r=>typeof r[0]==="string" && /^Día\s*\d+$/i.test(r[0].trim()))
@@ -396,9 +422,9 @@ function leer(buf){
     seg:filas(M.seg), pts:filas(M.pts), mar:filas(M.mar),
     r1:filas(M.r1), r2:filas(M.r2), r3:filas(M.r3), r4:filas(M.r4),
     r6:filas(M.r6), r7:filas(M.r7), r8:filas(M.r8), r9:filas(M.r9), r10:filas(M.r10),
-    ganador:fila(M.r6,"Ganador del día").slice(2,12),
-    maximo:fila(M.r6,"Máximo del día").slice(2,12),
-    empate:fila(M.r6,"Asesores empatados").slice(2,12)};
+    DIAS, SEM, IDX_TOT, IDX_EX,
+    ganador:fila(M.r6,"Ganador"), maximo:fila(M.r6,"Máximo del periodo"),
+    empate:fila(M.r6,"Asesores empatados")};
 
   if(!d.seg.length) throw new Error("No encontré filas de asesores en la hoja Seguimiento.");
 
@@ -408,14 +434,14 @@ function leer(buf){
     citas:      d.seg.reduce((s,r)=>s+N(r[7]),0),
     citasEv:    d.seg.reduce((s,r)=>s+N(r[8]),0),
     perfilados: d.r1.reduce((s,r)=>s+N(r[5]),0),
-    ofertas:    d.r7.reduce((s,r)=>s+N(r[12]),0),
-    apartados:  d.r8.reduce((s,r)=>s+N(r[12]),0),
-    ventas:     d.r10.reduce((s,r)=>s+N(r[12]),0),
-    firmasEv:   d.r10.reduce((s,r)=>s+N(r[13]),0),
+    ofertas:    d.r7.reduce((s,r)=>s+N(r[IDX_TOT]),0),
+    apartados:  d.r8.reduce((s,r)=>s+N(r[IDX_TOT]),0),
+    ventas:     d.r10.reduce((s,r)=>s+N(r[IDX_TOT]),0),
+    firmasEv:   d.r10.reduce((s,r)=>s+N(r[IDX_EX]),0),
     puntos:     d.pts.reduce((s,r)=>s+N(r[20]),0),
     asesores:   d.seg.length
   };
-  d.ptsDia = d.dias.map((_,j)=> d.mar.reduce((s,r)=>s+N(r[2+j]),0));
+  d.ptsDia = DIAS.map(o=> d.mar.reduce((s,r)=>s+N(r[o.i]),0));
   let ult = 0; d.ptsDia.forEach((v,j)=>{ if(v>0) ult=j; });
   d.diaActual = ult+1;
   return d;
@@ -668,31 +694,67 @@ function ranking(pane, datos, opt){
   });
   pane.appendChild(tabla(cols, fs));
 }
-/* rejilla de calor asesor x día */
-function heat(pane, filasDatos, colIni, total, color, fmt){
+/* rejilla de calor: semanas plegadas, con botón para abrir los días */
+function heat(pane, filasDatos, color, fmt){
   const cont = EL("div");
+  const tools = EL("div","tools");
   const box = EL("div","tblbox"), t = EL("table","heat"), th = EL("thead"), tr = EL("tr");
-  const cols = [{t:"Asesor"}].concat(D.dias.map(d=>({t:d}))).concat([{t:"Total"}]);
-  cols.forEach(c=>tr.appendChild(EL("th",null,c.t)));
+  const cols = [{t:"Asesor"}];
+  tr.appendChild(EL("th",null,"Asesor"));
+  D.SEM.forEach((sm,k)=>{
+    sm.dias.forEach(d=>{
+      const h = EL("th","dia oculta",d.lbl);
+      h.dataset.w = k; cols.push({t:d.lbl}); tr.appendChild(h);
+    });
+    const h = EL("th","sem");
+    h.appendChild(document.createTextNode(sm.lbl));
+    const b = EL("button","exp","+"); b.type="button"; b.title = "Ver los días de "+sm.det;
+    b.addEventListener("click",()=>{
+      const abierto = b.textContent === "−";
+      b.textContent = abierto ? "+" : "−";
+      [...t.querySelectorAll('[data-w="'+k+'"]')].forEach(c=>c.classList.toggle("oculta", abierto));
+    });
+    h.appendChild(b);
+    cols.push({t:sm.lbl}); tr.appendChild(h);
+  });
+  tr.appendChild(EL("th",null,"Total")); cols.push({t:"Total"});
   th.appendChild(tr); t.appendChild(th);
+
   const tb = EL("tbody");
-  const mx = Math.max(...filasDatos.map(r=>Math.max(...r.slice(colIni,colIni+10).map(N))),1);
-  filasDatos.slice().sort((a,b)=>N(b[total])-N(a[total])).forEach(r=>{
+  const mx = Math.max(...filasDatos.map(r=>Math.max(...D.DIAS.map(o=>N(r[o.i])))),1);
+  filasDatos.slice().sort((a,b)=>N(b[D.IDX_TOT])-N(a[D.IDX_TOT])).forEach(r=>{
     const f = EL("tr");
     f.dataset.eq = String(r[0]||"").trim();
     const c0 = EL("td","who"); c0.innerHTML = nombre(r[0],r[1]); f.appendChild(c0);
-    for(let j=0;j<10;j++){
-      const v = N(r[colIni+j]);
-      const td = EL("td", v?null:"z", v?fmt(v):"·");
-      if(v) td.style.background = color.replace("@", (0.12+0.45*v/mx).toFixed(3));
-      f.appendChild(td);
-    }
-    const tt = EL("td",null,fmt(N(r[total]))); tt.style.fontWeight="700"; f.appendChild(tt);
+    D.SEM.forEach((sm,k)=>{
+      sm.dias.forEach(d=>{
+        const v = N(r[d.i]);
+        const td = EL("td", "dia oculta"+(v?"":" z"), v?fmt(v):"·");
+        td.dataset.w = k;
+        if(v) td.style.background = color.replace("@",(0.12+0.45*v/mx).toFixed(3));
+        f.appendChild(td);
+      });
+      const sv = N(r[sm.i]);
+      f.appendChild(EL("td","sem"+(sv?"":" z"), sv?fmt(sv):"·"));
+    });
+    const tt = EL("td",null,fmt(N(r[D.IDX_TOT]))); tt.style.fontWeight="700"; f.appendChild(tt);
     tb.appendChild(f);
   });
   t.appendChild(tb); box.appendChild(t);
-  const tools = controles(tb, cols, tr, {eqAttr:true});
-  if(tools) cont.appendChild(tools);
+
+  const todo = EL("button","semtoggle","Ver todos los días");
+  todo.type = "button"; todo.setAttribute("aria-pressed","false");
+  todo.addEventListener("click",()=>{
+    const abrir = todo.getAttribute("aria-pressed") !== "true";
+    todo.setAttribute("aria-pressed", abrir);
+    todo.textContent = abrir ? "Ver solo semanas" : "Ver todos los días";
+    [...t.querySelectorAll(".dia")].forEach(c=>c.classList.toggle("oculta", !abrir));
+    [...t.querySelectorAll(".exp")].forEach(b=>b.textContent = abrir ? "−" : "+");
+  });
+  tools.appendChild(todo);
+  const ctr = controles(tb, cols, tr, {eqAttr:true});
+  if(ctr) while(ctr.firstChild) tools.appendChild(ctr.firstChild);
+  cont.appendChild(tools);
   cont.appendChild(box);
   pane.appendChild(cont);
 }
@@ -718,7 +780,7 @@ tab("1","Seguimiento general", pane=>{
       "Actividades":       fm(rs.reduce((s,r)=>s+N(r[6]),0)),
       "Clientes citados":  fm(rs.reduce((s,r)=>s+N(r[7]),0)),
       "Apartados":         fm(D.r8.filter(r=>String(r[0]).trim()===eq)
-                                  .reduce((s,r)=>s+N(r[12]),0)),
+                                  .reduce((s,r)=>s+N(r[D.IDX_TOT]),0)),
       "Puntos":            fm1(D.pts.filter(r=>String(r[0]).trim()===eq)
                                   .reduce((s,r)=>s+N(r[20]),0))
     };
@@ -757,7 +819,7 @@ tab("2","Marcador diario", pane=>{
     "Los puntos que cada asesor generó ese día: clientes llamados, citas, ofertas, apartados, "+
     "firmas y lo que se captura a mano.");
 
-  const glob = D.mar.map(r=>({quien:r[1], eq:r[0], v:N(r[12])}))
+  const glob = D.mar.map(r=>({quien:r[1], eq:r[0], v:N(r[D.IDX_TOT])}))
     .sort((a,b)=> b.v-a.v || a.quien.localeCompare(b.quien));
   const lider = glob[0];
   if(lider && lider.v>0){
@@ -805,7 +867,7 @@ tab("2","Marcador diario", pane=>{
   pane.appendChild(days); pane.appendChild(podio); pintar();
 
   pane.appendChild(EL("h3","sub","Puntos por asesor y día"));
-  heat(pane, D.mar, 2, 12, "rgba(217,164,65,@)", fm1);
+  heat(pane, D.mar, "rgba(217,164,65,@)", fm1);
   pane.appendChild(EL("p","note","En modo por bloques, cada 100 clientes llamados en un mismo día "+
     "dan 10 puntos; una cita da "+fm(D.valor.cita)+"."));
 });
@@ -897,26 +959,27 @@ tab("5","Reto 2 · 300 llamadas", pane=>{
 tab("6","Reto 3 · Motivación y apoyo", pane=>{
   cabecera(pane,"Reto 3: quien más motive y apoye al equipo",
     "¿Quién fue el que más apoyó a sus compañeros?", "$500 Liverpool", 3);
-  const tot = D.r3.reduce((s,r)=>s+N(r[12]),0);
+  const tot = D.r3.reduce((s,r)=>s+N(r[D.IDX_TOT]),0);
   if(!tot){
     pane.appendChild(vacio("Todavía no hay reconocimientos registrados",
       "Captúralos en el Excel con el tipo Motivación y apoyo al equipo y aparecen aquí."));
     return;
   }
-  ranking(pane, D.r3.map(r=>({eq:r[0],as:r[1],v:N(r[12])})), {etiqueta:"Reconocimientos"});
+  ranking(pane, D.r3.map(r=>({eq:r[0],as:r[1],v:N(r[D.IDX_TOT])})),
+    {etiqueta:"Reconocimientos"});
 }, 3);
 
 /* -- 7 -- */
 tab("7","Reto 4 · Clientes perfilados", pane=>{
   cabecera(pane,"Reto 4: tres clientes perfilados",
     "Premio al asesor que tenga 3 clientes con buen perfilamiento.", "Premio sorpresa", 4);
-  const tot = D.r4.reduce((s,r)=>s+N(r[12]),0);
+  const tot = D.r4.reduce((s,r)=>s+N(r[D.IDX_TOT]),0);
   if(!tot){
     pane.appendChild(vacio("Ningún cliente perfilado capturado todavía",
       "En cuanto registres el primero en el Excel, el reto arranca aquí."));
     return;
   }
-  ranking(pane, D.r4.map(r=>({eq:r[0],as:r[1],v:N(r[12]),extra:[r[16]||"—"]})),
+  ranking(pane, D.r4.map(r=>({eq:r[0],as:r[1],v:N(r[D.IDX_TOT]),extra:[r[D.IDX_EX+3]||"—"]})),
     {etiqueta:"Perfilados", meta:D.meta.perfR4,
      extra:{cols:[{t:"Orden de llegada"}], cel:o=>o.extra}});
 }, 4);
@@ -929,17 +992,17 @@ tab("8","Reto 6 · Citas por día", pane=>{
 
   pane.appendChild(EL("h3","sub","Ganador de cada día"));
   pane.appendChild(tabla([{t:"Día"},{t:"Fecha"},{t:"Ganador"},{t:"Citas",n:true},{t:"Empates"}],
-    D.dias.map((d,i)=>{
-      const g = D.ganador[i], emp = N(D.empate[i]), mx = N(D.maximo[i]);
+    D.DIAS.map((o,i)=>{
+      const g = D.ganador[o.i], emp = N(D.empate[o.i]), mx = N(D.maximo[o.i]);
       const hay = g && g!=="—";
-      return {c:["Día "+(i+1), d,
+      return {c:["Día "+(i+1), o.lbl,
         hay ? esc(g) : '<span style="color:var(--dim)">Sin citas registradas</span>',
         hay ? fm(mx) : "—",
         emp>1 ? emp+" empatados" : (hay?"Sin empate":"—")]};
     })));
 
   pane.appendChild(EL("h3","sub","Clientes citados por asesor y día"));
-  heat(pane, D.r6, 2, 12, "rgba(111,191,115,@)", fm);
+  heat(pane, D.r6, "rgba(111,191,115,@)", fm);
   pane.appendChild(EL("p","note","Cada cliente se cuenta el día de su primera cita. En total: "+
     fm(D.tot.citas)+" clientes citados, "+fm(D.tot.citasEv)+" con evento Omnilife."));
 });
@@ -952,9 +1015,10 @@ tab("9","Reto 7 · Ofertas", pane=>{
       "En cuanto se registre un pago de apartado en Salesforce, aparece aquí con su fecha."));
     return;
   }
-  ranking(pane, D.r7.map(r=>({eq:r[0],as:r[1],v:N(r[12]),extra:[dateTxt(r[13]),
-      N(r[14]) ? '<span class="pill warn">'+fm(r[14])+' por revisar</span>' : "—",
-      r[15]||"—"]})),
+  ranking(pane, D.r7.map(r=>({eq:r[0],as:r[1],v:N(r[D.IDX_TOT]),
+      extra:[dateTxt(r[D.IDX_EX]),
+      N(r[D.IDX_EX+1]) ? '<span class="pill warn">'+fm(r[D.IDX_EX+1])+' por revisar</span>' : "—",
+      r[D.IDX_EX+2]||"—"]})),
     {etiqueta:"Ofertas",
      extra:{cols:[{t:"Primera oferta"},{t:"Sin carta oferta"},{t:"Orden de llegada"}],
             cel:o=>o.extra}});
@@ -970,17 +1034,18 @@ tab("10","Reto 8 · Apartados", pane=>{
       "El primero se lleva el premio especial. Se registra solo, en cuanto entre el pago al CRM."));
     return;
   }
-  ranking(pane, D.r8.map(r=>({eq:r[0],as:r[1],v:N(r[12]),extra:[dateTxt(r[13]),
-      N(r[14]) ? '<span class="pill warn">'+fm(r[14])+' por revisar</span>' : "—",
-      r[15]||"—"]})),
+  ranking(pane, D.r8.map(r=>({eq:r[0],as:r[1],v:N(r[D.IDX_TOT]),
+      extra:[dateTxt(r[D.IDX_EX]),
+      N(r[D.IDX_EX+1]) ? '<span class="pill warn">'+fm(r[D.IDX_EX+1])+' por revisar</span>' : "—",
+      r[D.IDX_EX+2]||"—"]})),
     {etiqueta:"Apartados",
      extra:{cols:[{t:"Primer apartado"},{t:"Sin carta oferta"},{t:"Orden de llegada"}],
             cel:o=>o.extra}});
 }, 8);
 
 /* -- 11 -- */
-tab("11","Reto 9 · Mil llamadas", pane=>{
-  cabecera(pane,"Reto 9: mil llamadas en los diez días",
+tab("11","Reto 9 · Mil actividades", pane=>{
+  cabecera(pane,"Reto 9: mil actividades en el maratón",
     "Meta de "+fm(D.meta.llamadas9)+" actividades registradas a lo largo del maratón.",
     "Reconocimiento + premio", 9);
   ranking(pane, D.r9.map(r=>({eq:r[0],as:r[1],v:N(r[2]),extra:[fm(r[3])]})),
@@ -998,8 +1063,8 @@ tab("12","Reto 10 · Ventas del evento", pane=>{
       fm(D.valor.venta)+" puntos cada una."));
     return;
   }
-  ranking(pane, D.r10.map(r=>({eq:r[0],as:r[1],v:N(r[13]),extra:[fm(r[12]),
-      N(r[15]) ? '<span class="pill warn">'+fm(r[15])+' por revisar</span>' : "—"]})),
+  ranking(pane, D.r10.map(r=>({eq:r[0],as:r[1],v:N(r[D.IDX_EX]),extra:[fm(r[D.IDX_TOT]),
+      N(r[D.IDX_EX+2]) ? '<span class="pill warn">'+fm(r[D.IDX_EX+2])+' por revisar</span>' : "—"]})),
     {etiqueta:"Firmas del día del evento",
      extra:{cols:[{t:"Firmas del maratón",n:true},{t:"Etapa incompleta"}], cel:o=>o.extra}});
   pane.appendChild(EL("p","note","Firmas el día del evento: "+fm(D.tot.firmasEv)+" de "+
@@ -1022,7 +1087,7 @@ function render(){
     {t:"Clientes llamados totales", c:"#4E9BD8", ic:ICO.tel,  v:porEquipo(D.seg,5)},
     {t:"Actividades totales",       c:"#6FBF73", ic:ICO.act,  v:porEquipo(D.seg,6)},
     {t:"Clientes citados totales",  c:"#E8853C", ic:ICO.cal,  v:porEquipo(D.seg,7)},
-    {t:"Apartados totales",         c:"#E2554F", ic:ICO.casa, v:porEquipo(D.r8,12)},
+    {t:"Apartados totales",         c:"#E2554F", ic:ICO.casa, v:porEquipo(D.r8,D.IDX_TOT)},
     {t:"Puntos totales acumulados", c:"#9B7FD4", ic:ICO.copa, v:porEquipo(D.pts,20), dec:true}
   ];
   const kp = $("#kpis"); kp.innerHTML = "";
@@ -1063,8 +1128,9 @@ function render(){
     lds.appendChild(l);
   });
 
-  const restan = Math.max(0, 10 - D.diaActual);
-  $("#dayline").innerHTML = "Día <b>"+D.diaActual+"</b> de 10, "+
+  const TOTDIAS = D.dias.length;
+  const restan = Math.max(0, TOTDIAS - D.diaActual);
+  $("#dayline").innerHTML = "Día <b>"+D.diaActual+"</b> de "+TOTDIAS+", "+
     (restan? "quedan <b>"+restan+"</b> días de maratón" : "es el último día") +
     ", <b>"+D.tot.asesores+"</b> asesores en cancha";
 
